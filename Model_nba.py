@@ -17,28 +17,28 @@ GP_PENALTY_POWER = 6
 NBA_RANKER_WEIGHT = 0.65
 ROOKIE_RANKER_WEIGHT = 0.60
 
-# Normalizuje wyniki modeli do zakresu 0-1 przed ich połączeniem
+# Normalizes model outputs to the 0-1 range before combining them
 def safe_minmax(values):
     values = np.asarray(values, dtype=float).reshape(-1, 1)
     if len(values) == 0 or np.nanmax(values) - np.nanmin(values) < 1e-12:
         return np.zeros(values.shape[0])
     return MinMaxScaler().fit_transform(values).flatten()
 
-# Nadaje większą wagę nowszym sezonom podczas treningu
+# Assigns higher weights to more recent seasons during training
 def season_weights(seasons):
     weights = np.ones(len(seasons), dtype=float)
     weights[seasons.isin(["2022-23"])] = 1.5
     weights[seasons.isin(["2023-24", "2024-25", "2025-26"])] = 2.25
     return weights
 
-# Usuwa błędne wartości i uzupełnia braki medianą
+# Removes invalid values and fills missing data with the median
 def clean_numeric(df):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
     df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median(numeric_only=True))
     return df
 
-#Dodaje nowe cechy do zbioru danych, jeśli wymagane kolumny istnieją
+#Adds new features to the dataset if the required columns exist
 def add_existing_features(df, features):
     for name, func in features.items():
         try:
@@ -46,37 +46,37 @@ def add_existing_features(df, features):
         except KeyError:
             pass
 
-#PRZYGOTOWANIE CECH EKSPERCKICH
+#EXPERT FEATURE ENGINEERING
 
 def prepare_features(df):
     df = clean_numeric(df.copy().sort_values("SEASON_ID").reset_index(drop=True))
-    print("Inżynieria cech: bazowe, głosowanie, defense/winning...")
+    print("Feature engineering: base, voting, defense/winning...")
 
     rank_features = [c for c in df.columns if c.endswith("_RANK")]
     for col in rank_features:
         df[f"{col}_SCORE"] = df.groupby("SEASON_ID")[col].transform("max") + 1 - df[col]
 
     add_existing_features(df, {
-        "TD3_per_game": lambda x: x["TD3"] / (x["GP"] + 1e-6),  # triple-double na mecz
-        "DD2_per_game": lambda x: x["DD2"] / (x["GP"] + 1e-6),  # double-double na mecz
-        "PTS_REB_AST": lambda x: x["PTS"] + x["REB"] + x["AST"],  # punkty + zbiórki + asysty
-        "STOCKS": lambda x: x["STL"] + x["BLK"],  # Wkład defensywny (steals + blocks)
-        "HEALTH_SCORE": lambda x: x["GP"] / (x.groupby("SEASON_ID")["GP"].transform("max") + 1e-6),# dostępność
-        "AVAILABILITY": lambda x: x["GP"] * x["MIN"],  # łączna liczba minut w sezonie
-        "SCORING_LOAD": lambda x: x["PTS"] * x["USG_PCT"],  # obciążenie punktowaniem
-        "CREATION": lambda x: x["PTS"] + 1.5 * x["AST"],  # kreowanie ofensywy
-        "TWO_WAY": lambda x: x["PTS"] + x["REB"] + x["AST"] + 2.0 * (x["STL"] + x["BLK"]),# wpływ po obu stronach parkietu
-        "EFF_VOLUME": lambda x: x["PTS"] * x["TS_PCT"],  # efektywne zdobywanie punktów
-        "TEAM_STAR": lambda x: x["W_PCT"] * x["PIE"],  # wpływ dla mocnej drużyny
-        "MVP_PROFILE": lambda x: x["PIE"] * x["W_PCT"] * np.log1p(x["GP"]),  # profil kandydata do MVP
-        "HIGH_USAGE_WINNING": lambda x: x["USG_PCT"] * x["W_PCT"],  # lider ofensywy w wygrywającym zespole
-        "ON_BALL_VALUE": lambda x: x["PTS"] + 1.2 * x["AST"] - 0.7 * x["TOV"],  # wartość zawodnika z piłką
-        "SCORING_EFFICIENCY_LOAD": lambda x: x["PTS"] * x["TS_PCT"] * x["USG_PCT"],  # efektywność przy dużej roli
-        "PLUS_MINUS_WINNING": lambda x: x["PLUS_MINUS"] * x["W_PCT"],  # wpływ na sukces drużyny
-        "FANTASY_AVAILABILITY": lambda x: x["NBA_FANTASY_PTS"] * np.log1p(x["GP"]),# produkcja przy uwzględnieniu dostępności
-        "GP_65_RATIO": lambda x: np.minimum(x["GP"] / 65.0, 1.0),  # dtopień spełnienia progu 65 meczów
-        "GP_65_FLAG": lambda x: (x["GP"] >= 65).astype(int),  # spełnia próg 65 meczów
-        "GP_60_FLAG": lambda x: (x["GP"] >= 60).astype(int),  # spełnia próg 60 meczów
+        "TD3_per_game": lambda x: x["TD3"] / (x["GP"] + 1e-6),  # triple-double per game
+        "DD2_per_game": lambda x: x["DD2"] / (x["GP"] + 1e-6),  # double-double per game
+        "PTS_REB_AST": lambda x: x["PTS"] + x["REB"] + x["AST"],  # points + rebounds + assists
+        "STOCKS": lambda x: x["STL"] + x["BLK"],  # Defensive contribution (steals + blocks)
+        "HEALTH_SCORE": lambda x: x["GP"] / (x.groupby("SEASON_ID")["GP"].transform("max") + 1e-6),# availability
+        "AVAILABILITY": lambda x: x["GP"] * x["MIN"],  # total minutes played in the season
+        "SCORING_LOAD": lambda x: x["PTS"] * x["USG_PCT"],  # scoring workload
+        "CREATION": lambda x: x["PTS"] + 1.5 * x["AST"],  # offensive creation
+        "TWO_WAY": lambda x: x["PTS"] + x["REB"] + x["AST"] + 2.0 * (x["STL"] + x["BLK"]),# two-way impact
+        "EFF_VOLUME": lambda x: x["PTS"] * x["TS_PCT"],  # efficient scoring
+        "TEAM_STAR": lambda x: x["W_PCT"] * x["PIE"],  # impact on a strong team
+        "MVP_PROFILE": lambda x: x["PIE"] * x["W_PCT"] * np.log1p(x["GP"]),  # MVP candidate profile
+        "HIGH_USAGE_WINNING": lambda x: x["USG_PCT"] * x["W_PCT"],  # offensive leader on a winning team
+        "ON_BALL_VALUE": lambda x: x["PTS"] + 1.2 * x["AST"] - 0.7 * x["TOV"],  # on-ball player value
+        "SCORING_EFFICIENCY_LOAD": lambda x: x["PTS"] * x["TS_PCT"] * x["USG_PCT"],  # efficiency in a high-usage role
+        "PLUS_MINUS_WINNING": lambda x: x["PLUS_MINUS"] * x["W_PCT"],  # impact on team success
+        "FANTASY_AVAILABILITY": lambda x: x["NBA_FANTASY_PTS"] * np.log1p(x["GP"]),# production adjusted for availability
+        "GP_65_RATIO": lambda x: np.minimum(x["GP"] / 65.0, 1.0),  # degree of meeting the 65-game threshold
+        "GP_65_FLAG": lambda x: (x["GP"] >= 65).astype(int),  # meets the 65-game threshold
+        "GP_60_FLAG": lambda x: (x["GP"] >= 60).astype(int),  # meets the 60-game threshold
  })
 
 
@@ -89,7 +89,7 @@ def prepare_features(df):
     ]
     core_stats = [c for c in core_stats if c in df.columns]
 
-    print("Generowanie z-score per sezon...")
+    print("Generating season-wise z-scores...")
     for stat in core_stats:
         mean = df.groupby("SEASON_ID")[stat].transform("mean")
         std = df.groupby("SEASON_ID")[stat].transform("std")
@@ -106,7 +106,7 @@ def prepare_features(df):
     df[feature_cols] = df[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(df[feature_cols].median(numeric_only=True)).fillna(0)
     return df, feature_cols
 
-# Trenuje model rankingowy LightGBM oraz model regresyjny dla All-NBA lub All-Rookie
+# Trains a LightGBM ranking model and a regression model for All-NBA or All-Rookie
 def train_models(df_train, feature_cols, target, rookie=False):
     X, y = df_train[feature_cols], df_train[target]
     groups = df_train.groupby("SEASON_ID", sort=False).size().values
@@ -123,15 +123,15 @@ def train_models(df_train, feature_cols, target, rookie=False):
     regressor.fit(X, y, sample_weight=weights)
     return ranker, regressor
 
-# Łączy predykcje modelu rankingowego i regresyjnego w jeden końcowy wynik
+# Combines ranking and regression model predictions into a single final score
 def blended_score(ranker, regressor, X, ranker_weight):
     return ranker_weight * safe_minmax(ranker.predict(X)) + (1.0 - ranker_weight) * safe_minmax(regressor.predict(X))
 
-# Miękka kara za niespełnienie progu 65 rozegranych meczów
+# Soft penalty for not meeting the 65-game eligibility threshold
 def soft_eligibility(scores, gp):
     return np.asarray(scores, dtype=float) * (np.clip(gp.values / 65.0, 0.0, 1.0) ** GP_PENALTY_POWER)
 
-# Wybór 15 najbardziej prawdopodobnych kandydatów do All-NBA z odrzuceniem graczy o słabszym profilu statystycznym
+# Selects the 15 most likely All-NBA candidates while filtering out weaker statistical profiles
 def all_nba_candidate_pool(players):
     pool = players.head(25).copy()
     remove = (
@@ -147,7 +147,7 @@ def all_nba_candidate_pool(players):
         selected = pd.concat([selected, players.loc[~players["PLAYER_NAME"].isin(selected["PLAYER_NAME"])].head(15 - len(selected))], ignore_index=True)
     return selected.head(15).copy()
 
-# Tworzy końcowe drużyny All-NBA na podstawie wyniku modelu oraz dodatkowych premiowanych cech
+# Builds the final All-NBA teams based on model scores and additional boosted features
 def build_all_nba_teams(players):
     selected = all_nba_candidate_pool(players)
     selected["first_team_score"] = (
@@ -167,29 +167,29 @@ def build_all_nba_teams(players):
 
 def main():
     if len(sys.argv) != 2:
-        print("Użycie: python model_nba_155142.py /sciezka/do/pliku/Nazwisko_Imie.json")
+        print("Usage: python model_nba_155142.py /path/to/file/LastName_FirstName.json")
         sys.exit(1)
 
     df, feature_cols = prepare_features(pd.read_csv(DATA_PATH))
     train = df[df["SEASON_ID"].isin(TRAIN_SEASONS)].copy().sort_values("SEASON_ID")
     test = df[df["SEASON_ID"] == TARGET_SEASON].copy().reset_index(drop=True)
     if test.empty:
-        raise ValueError(f"Brak danych dla sezonu testowego: {TARGET_SEASON}")
+        raise ValueError(f"No data available for test season: {TARGET_SEASON}")
 
-    print(f"Liczba cech: {len(feature_cols)}")
-    print(f"Trening: {TRAIN_SEASONS}")
-    print(f"Sezon testowy: {TARGET_SEASON}")
+    print(f"Number of features: {len(feature_cols)}")
+    print(f"Training seasons: {TRAIN_SEASONS}")
+    print(f"Test season: {TARGET_SEASON}")
 
     X_test = test[feature_cols]
     meta_cols = ["PLAYER_NAME", "is_rookie", "GP", "W_PCT", "PIE", "USG_PCT", "PTS", "REB", "AST", "BLK"]
     pred = test[[c for c in meta_cols if c in test.columns]].copy()
     pred["eligible_for_nba"] = (test["GP"] >= 65).astype(int)
 
-    print("\nTrenowanie modeli All-NBA...")
+    print("\nTraining All-NBA models...")
     nba_ranker, nba_regressor = train_models(train, feature_cols, "all_nba_target")
     pred["pred_nba_score"] = soft_eligibility(blended_score(nba_ranker, nba_regressor, X_test, NBA_RANKER_WEIGHT), test["GP"])
 
-    print("Trenowanie modeli All-Rookie...")
+    print("Training All-Rookie models...")
     rookies_train = train[train["is_rookie"] == 1].copy()
     rookie_ranker, rookie_regressor = train_models(rookies_train, feature_cols, "all_rookie_target", rookie=True)
     pred["pred_rookie_score"] = blended_score(rookie_ranker, rookie_regressor, X_test, ROOKIE_RANKER_WEIGHT)
@@ -202,14 +202,14 @@ def main():
         "second rookie all-nba team": rookies.iloc[5:10]["PLAYER_NAME"].tolist(),
     })
 
-    print("\nTOP 25 All-NBA według modelu:")
+    print("\nTOP 25 All-NBA according to the model:")
     print(all_nba[["PLAYER_NAME", "pred_nba_score", "GP", "W_PCT", "PIE", "USG_PCT", "PTS", "REB", "AST", "BLK", "eligible_for_nba"]].head(25).to_string(index=False))
-    print("\nTOP 12 All-Rookie według modelu:")
+    print("\nTOP 12 All-Rookie according to the model:")
     print(rookies[["PLAYER_NAME", "pred_rookie_score", "GP"]].head(12).to_string(index=False))
 
     with open(sys.argv[1], "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"\nPredykcje zapisane do pliku: {sys.argv[1]}")
+    print(f"\nPredictions saved to file: {sys.argv[1]}")
     print(json.dumps(results, ensure_ascii=False, indent=2))
 
 

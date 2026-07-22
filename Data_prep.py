@@ -133,20 +133,20 @@ def fetch_season_data(season: str, measure_type: str) -> pd.DataFrame:
             )
             return raw_data.get_data_frames()[0]
         except Exception as e:
-            print(f"   [Próba {attempt + 1}/{max_retries}] Błąd pobierania ({measure_type}) dla {season}: {e}")
+            print(f"   [Attempt {attempt + 1}/{max_retries}] Download error ({measure_type}) dla {season}: {e}")
             time.sleep(5)
-    raise RuntimeError(f"Nie udało się pobrać danych {measure_type} dla sezonu {season} po {max_retries} próbach.")
+    raise RuntimeError(f"Failed to download {measure_type} dla sezonu {season} po {max_retries} próbach.")
 
 #Retrieves and combines traditional and advanced statistics for the specified seasons.
 def download_nba_data(seasons_list: list) -> pd.DataFrame:
     all_seasons_data = []
 
     for season in seasons_list:
-        print(f"=== Pobieranie danych dla sezonu: {season} ===")
+        print(f"=== Downloading data for season: {season} ===")
         try:
             # 1. Traditional statistics
             df_traditional = fetch_season_data(season, 'Base')
-            time.sleep(2.0)  # Bezpieczny delay dla API NBA
+            time.sleep(2.0)  # Safe delay for the NBA API
 
             # 2. Advanced statistics
             df_advanced = fetch_season_data(season, 'Advanced')
@@ -157,18 +157,18 @@ def download_nba_data(seasons_list: list) -> pd.DataFrame:
 
             df_season['SEASON_ID'] = season
             all_seasons_data.append(df_season)
-            print(f"Sukces! Pobrano {len(df_season)} zawodników.")
+            print(f"Success! Downloaded {len(df_season)} players.")
             time.sleep(2.0)
 
         except Exception as e:
-            print(f"!!! Krytyczny błąd dla sezonu {season}: {e}. Pomijam...")
+            print(f"!!! Critical error for season {season}: {e}. Skipping...")
 
     return pd.concat(all_seasons_data, ignore_index=True) if all_seasons_data else None
 
 #Maps historical awards to the training dataset.
 def build_target_labels(stats_csv_path: str, awards_dict: dict) -> pd.DataFrame:
     if not os.path.exists(stats_csv_path):
-        print(f"Błąd: Nie znaleziono pliku {stats_csv_path}.")
+        print(f"Error: File not found {stats_csv_path}.")
         return None
 
     df = pd.read_csv(stats_csv_path)
@@ -204,8 +204,8 @@ def build_target_labels(stats_csv_path: str, awards_dict: dict) -> pd.DataFrame:
 
     # Display the class distribution (diagnostic).
     train_mask = df['SEASON_ID'] != "2025-26"
-    print("\n[Rozkład All-NBA (Train)]:\n", df[train_mask]['all_nba_target'].value_counts())
-    print("\n[Rozkład All-Rookie (Train)]:\n", df[train_mask]['all_rookie_target'].value_counts())
+    print("\n[All-NBA distribution (Train)]:\n", df[train_mask]['all_nba_target'].value_counts())
+    print("\n[All-Rookie distribution (Train)]:\n", df[train_mask]['all_rookie_target'].value_counts())
 
     return df
 
@@ -215,10 +215,10 @@ if __name__ == "__main__":
     raw_dataset = download_nba_data(SEASONS)
     if raw_dataset is not None:
         raw_dataset.to_csv(RAW_CSV_PATH, index=False)
-        print(f"\nZapisano surowe statystyki do {RAW_CSV_PATH}. Kształt: {raw_dataset.shape}")
+        print(f"\nRaw statistics saved to {RAW_CSV_PATH}. Shape: {raw_dataset.shape}")
 
     # 2. Data labeling
     labeled_dataset = build_target_labels(RAW_CSV_PATH, HISTORICAL_AWARDS)
     if labeled_dataset is not None:
         labeled_dataset.to_csv(LABELED_CSV_PATH, index=False)
-        print(f"Sukces! Dataset z etykietami zapisany do {LABELED_CSV_PATH}")
+        print(f"Success! Labeled dataset saved to {LABELED_CSV_PATH}")
